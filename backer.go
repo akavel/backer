@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/gcfg.v1" // TODO(akavel): use github.com/akavel/gcfg if pull request not merged
 )
@@ -32,10 +35,7 @@ func run() error {
 	}
 
 	// Find destination to backup to.
-	var dst struct {
-		id   string
-		path string
-	}
+	var dst destination
 Detect:
 	for i, path := range config.To.CfgPaths {
 		fmt.Printf("Detecting destination %d/%d...", i+1, len(config.To.CfgPaths))
@@ -98,13 +98,7 @@ Detect:
 	var missing, rest []source
 	var size int64
 	for _, src := range sources {
-		// Destination directory where files will get copied.
-		droot := filepath.Dir(dst.path)
-		if as := config.Backups[src.root].As; as != "" {
-			droot = filepath.Join(droot, as)
-		} else {
-			droot = filepath.Join(droot, filepath.Base(src.root))
-		}
+		droot := dst.Root(src, &config)
 
 		missing, rest = append(missing, source{root: src.root}), append(rest, source{root: src.root})
 		m, r := &missing[len(missing)-1], &rest[len(rest)-1]
@@ -113,26 +107,72 @@ Detect:
 				fmt.Printf("Comparing... %d/%d\r", n, total(sources))
 			}
 			dpath := filepath.Join(droot, path)
-			dinfo, err := os.Stat(dpath)
-			switch {
-			case os.IsNotExist(err):
-				break
-			case err != nil:
-				return fmt.Errorf("cannot scan destination file: %s", err)
+			spath := filepath.Join(src.root, path)
+			dinfo, sinfo, err := finfos(dpath, spath)
+			if err != nil {
+				return err
 			}
-			sinfo, err := os.Stat(filepath.Join(src.root, path))
-			switch {
-			case err != nil:
-				return fmt.Errorf("cannot scan source file: %s", err)
-			case dinfo != nil && dinfo.Size() == sinfo.Size() && dinfo.ModTime() == sinfo.ModTime():
+			if dinfo != nil && dinfo.Size() == sinfo.Size() && dinfo.ModTime() == sinfo.ModTime() {
 				r.files = append(r.files, path)
-			default:
-				size += sinfo.Size()
+			} else {
 				m.files = append(m.files, path)
+				size += sinfo.Size()
 			}
 		}
 	}
 	fmt.Printf("\nMissing: %d/%d (%s)\n", total(missing), total(sources), human(size))
+
+	// Run the backup.
+	// TODO(akavel): if high quality selected, run on 'rest' too
+	// TODO(akavel): show stats: MB/s, ETA, # of files & total, # of bytes & total
+	// TODO(akavel): install signal hander: on Ctrl-C, delete currently copied file ("cleanup"), then exit
+	var copied struct {
+		files int
+		bytes int64
+	}
+	for _, src := range missing {
+		droot := dst.Root(src, &config)
+		for _, path := range src.files {
+			dpath := filepath.Join(droot, path)
+			spath := filepath.Join(src.root, path)
+			dinfo, sinfo, err := finfos(dpath, spath)
+			if err != nil {
+				return err
+			}
+
+			// Do we need to run the backup?
+			if dinfo != nil {
+				// If file contents equal, no need to backup.
+				if dinfo.Size() == sinfo.Size() && compare(dpath, spath) {
+					// TODO(akavel): os.Chtimes(dpath, sinfo.ModTime())?
+					continue
+				}
+				moveto, err := mksuffix(dpath)
+				if err != nil {
+					return err
+				}
+				err = os.Rename(dpath, moveto)
+				if err != nil {
+					return fmt.Errorf("cannot rename %s to %s", dpath, filepath.Base(moveto))
+				}
+				// FIXME(akavel): log the filename to file on dst disk (ideally, make the path configurable)
+				fmt.Printf("NOTE: %s exists but differs; renamed to %s\n", dpath, filepath.Base(moveto))
+			}
+
+			// Copy the bytes.
+			copied.files++
+			fmt.Printf("Backing up %d/%d (%s @ %s/%s)...       \r",
+				copied.files, total(missing),
+				human(sinfo.Size()), human(copied.bytes), human(size))
+			err = backup(dpath, spath, sinfo.ModTime()) // TODO(akavel): return nbytes too, for better calculations
+			if err != nil {
+				os.Remove(dpath)
+				fmt.Printf("\nERROR: cannot backup %s\n", spath)
+				return err
+			}
+			copied.bytes += sinfo.Size()
+		}
+	}
 
 	return nil
 }
@@ -150,6 +190,10 @@ func total(sources []source) int {
 	return n
 }
 
+func round(f float64) float64 {
+	return float64(int(f + 0.5)) // TODO(akavel): round prettier?
+}
+
 func human(size int64) string {
 	f, unit := 0.0, "B"
 	switch {
@@ -162,8 +206,115 @@ func human(size int64) string {
 	case size > 1024:
 		f, unit = float64(size/1024), "KiB"
 	}
-	if f >= 10 {
-		f = float64(int(f + 0.5)) // TODO(akavel): round prettier
+
+	switch {
+	case f >= 10:
+		f = round(f)
+	case f >= 0.1:
+		f = round(f*10) / 10
 	}
-	return fmt.Sprintf("%.2g %s", f, unit)
+	return fmt.Sprintf("%.0f %s", f, unit)
+}
+
+type destination struct {
+	id   string
+	path string
+}
+
+// Root of the destination directory tree where files should get copied.
+func (dst destination) Root(src source, config *Config) string {
+	home := filepath.Dir(dst.path)
+	if as := config.Backups[src.root].As; as != "" {
+		return filepath.Join(home, as)
+	} else {
+		return filepath.Join(home, filepath.Base(src.root))
+	}
+}
+
+func finfos(dpath, spath string) (os.FileInfo, os.FileInfo, error) {
+	dinfo, err := os.Stat(dpath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("cannot scan destination file: %s", err)
+	}
+	sinfo, err := os.Stat(spath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot scan source file: %s", err)
+	}
+	return dinfo, sinfo, nil
+}
+
+func compare(path1, path2 string) bool {
+	f1, err := os.Open(path1)
+	if err != nil {
+		return false
+	}
+	defer f1.Close()
+	f2, err := os.Open(path2)
+	if err != nil {
+		return false
+	}
+	defer f2.Close()
+
+	var buf1, buf2 [1024]byte
+	for {
+		n1, err1 := io.ReadFull(f1, buf1[:])
+		n2, err2 := io.ReadFull(f2, buf2[:])
+		if !bytes.Equal(buf1[:n1], buf2[:n2]) {
+			return false
+		}
+		if (err1 == io.EOF || err1 == io.ErrUnexpectedEOF) && err1 == err2 {
+			return true
+		}
+		if err1 != err2 {
+			return false
+		}
+	}
+}
+
+func mksuffix(path string) (string, error) {
+	const format = "%s.$backer%d"
+	for i := 1; i <= 100; i++ {
+		fname := fmt.Sprintf(format, path, i)
+		_, err := os.Stat(fname)
+		if os.IsNotExist(err) {
+			return fname, nil
+		}
+	}
+	return "", fmt.Errorf("cannot build filename for rename of %s", path)
+}
+
+func backup(dpath, spath string, chtime time.Time) error {
+	sfile, err := os.Open(spath)
+	if err != nil {
+		// TODO(akavel): longer error msg?
+		return err
+	}
+	defer sfile.Close()
+
+	err = os.MkdirAll(filepath.Dir(dpath), 0755)
+	if err != nil {
+		return err
+	}
+	dfile, err := os.OpenFile(dpath, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		// TODO(akavel): longer error msg?
+		return err
+	}
+	_, err = io.Copy(dfile, sfile)
+	if err != nil {
+		dfile.Close()
+		// TODO(akavel): longer error msg?
+		return err
+	}
+	err = dfile.Close()
+	if err != nil {
+		// TODO(akavel): longer error msg?
+		return err
+	}
+	// FIXME(akavel): are both args below ok?
+	err = os.Chtimes(dpath, chtime, chtime)
+	if err != nil {
+		return err
+	}
+	return nil
 }

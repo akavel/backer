@@ -175,6 +175,7 @@ Detect:
 		}
 	}
 
+	fmt.Println("DONE.")
 	return nil
 }
 

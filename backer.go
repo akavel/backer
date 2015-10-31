@@ -106,7 +106,7 @@ Detect:
 		missing, rest = append(missing, source{root: src.root}), append(rest, source{root: src.root})
 		m, r := &missing[len(missing)-1], &rest[len(rest)-1]
 		for _, path := range src.files {
-			if n := total(missing) + total(rest) + 1; n == 1 || n%100 == 100 || n == total(sources) {
+			if n := total(missing) + total(rest) + 1; n == 1 || n%100 == 0 || n == total(sources) {
 				// TODO(akavel): print stats each 1s via goroutine, with MB/s from func 'compare'
 				fmt.Printf("Comparing... %d/%d\r", n, total(sources))
 			}

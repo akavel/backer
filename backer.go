@@ -204,12 +204,18 @@ Detect:
 				return err
 			}
 
+			copied.files++
+			fmt.Printf("\rBacking up %d/%d (%s/%s) %s file...       \r",
+				copied.files, total(missing),
+				human(copied.bytes), human(size), human(sinfo.Size()))
+
 			// Do we need to run the backup?
 			if dinfo != nil {
 				// If file contents equal, no need to backup.
 				if dinfo.Size() == sinfo.Size() && compare(dpath, spath) {
 					// TODO(akavel): os.Chtimes(dpath, sinfo.ModTime())?
 					dst.Done(path, dinfo)
+					copied.bytes += sinfo.Size()
 					continue
 				}
 				moveto, err := mksuffix(dpath)
@@ -225,10 +231,6 @@ Detect:
 			}
 
 			// Copy the bytes.
-			copied.files++
-			fmt.Printf("\rBacking up %d/%d (%s/%s) %s file...       \r",
-				copied.files, total(missing),
-				human(copied.bytes), human(size), human(sinfo.Size()))
 			err = backup(dpath, spath, sinfo.ModTime()) // TODO(akavel): return nbytes too, for better calculations
 			if err != nil {
 				os.Remove(dpath)

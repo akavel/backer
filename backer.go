@@ -242,7 +242,7 @@ Detect:
 		}
 	}
 
-	fmt.Println("DONE.")
+	fmt.Println("\nDONE.")
 	return nil
 }
 

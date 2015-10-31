@@ -4,8 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"gopkg.in/gcfg.v1"
+	"gopkg.in/gcfg.v1" // TODO(akavel): use github.com/akavel/gcfg if pull request not merged
 )
 
 var (
@@ -51,13 +52,51 @@ Detect:
 			}
 			dst.id = id
 			dst.path = path
-			fmt.Printf(" OK: %s", dst.path)
+			fmt.Printf(" OK: %s\n", dst.path)
 			break Detect
 		}
 		fmt.Printf(" no (ID not matched: %s)\n", dcfg.Main.ID)
 	}
 	if dst.id == "" {
 		return fmt.Errorf("cannot find any backup destination")
+	}
+
+	type source struct {
+		root   string
+		files  []string
+		config *BackupConfig
+	}
+	var total int64
+	var sources []source
+	for root, bcfg := range config.Backups {
+		fmt.Printf("Scanning %s", root)
+		s := source{
+			root:   root,
+			config: bcfg,
+		}
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			// TODO(akavel): handle empty dirs
+			if info.IsDir() {
+				return nil
+			}
+			s.files = append(s.files, path)
+			total++
+			if total%100 == 0 {
+				fmt.Printf(".")
+			}
+			return nil
+		})
+		fmt.Println()
+		if err != nil {
+			return err
+		}
+		if len(s.files) == 0 {
+			return fmt.Errorf("no files found in source directory %s", root)
+		}
+		sources = append(sources, s)
 	}
 
 	return nil

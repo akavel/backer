@@ -9,9 +9,11 @@ type Config struct {
 		IDs      []string `gcfg:"id"`
 		CfgPaths []string `gcfg:"cfg-path"`
 	}
-	Backup map[string]*struct {
-		As string // optional
-	}
+	Backups map[string]*BackupConfig `gcfg:"Backup"`
+}
+
+type BackupConfig struct {
+	As string // optional
 }
 
 type DstConfig struct {

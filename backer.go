@@ -104,6 +104,7 @@ Detect:
 		m, r := &missing[len(missing)-1], &rest[len(rest)-1]
 		for _, path := range src.files {
 			if n := total(missing) + total(rest) + 1; n == 1 || n%100 == 100 || n == total(sources) {
+				// TODO(akavel): print stats each 1s via goroutine, with MB/s from func 'compare'
 				fmt.Printf("Comparing... %d/%d\r", n, total(sources))
 			}
 			dpath := filepath.Join(droot, path)
@@ -161,9 +162,9 @@ Detect:
 
 			// Copy the bytes.
 			copied.files++
-			fmt.Printf("Backing up %d/%d (%s @ %s/%s)...       \r",
+			fmt.Printf("Backing up %d/%d (%s/%s) %s file...       \r",
 				copied.files, total(missing),
-				human(sinfo.Size()), human(copied.bytes), human(size))
+				human(copied.bytes), human(size), human(sinfo.Size()))
 			err = backup(dpath, spath, sinfo.ModTime()) // TODO(akavel): return nbytes too, for better calculations
 			if err != nil {
 				os.Remove(dpath)

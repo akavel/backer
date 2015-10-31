@@ -9,6 +9,7 @@ type Config struct {
 		IDs      []string `gcfg:"id"`
 		CfgPaths []string `gcfg:"cfg-path"`
 	}
+	// TODO(akavel): those should be processed in same order as in the file; map makes them random
 	Backups map[string]*BackupConfig `gcfg:"Backup"`
 }
 

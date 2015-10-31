@@ -13,3 +13,9 @@ type Config struct {
 		As string // optional
 	}
 }
+
+type DstConfig struct {
+	Main struct {
+		ID string `gcfg:"id"`
+	}
+}

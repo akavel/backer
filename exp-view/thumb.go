@@ -8,11 +8,14 @@ import (
 	"image/png"
 	"io"
 
+	"github.com/disintegration/imaging"
 	"golang.org/x/image/draw"
 )
 
 func thumbnailImage(r io.Reader, maxw, maxh int) ([]byte, error) {
-	src, typ, err := image.Decode(r)
+	src, err := imaging.Decode(r, imaging.AutoOrientation(true))
+	typ := "jpeg"
+	// src, typ, err := image.Decode(r)
 	if err != nil {
 		return nil, fmt.Errorf("parsing image for thumbnail: %w", err)
 	}

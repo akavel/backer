@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
@@ -43,6 +45,23 @@ func main() {
 	win := gwu.NewWindow("main", "Backer viewer")
 	win.Style().SetFullWidth()
 	// win.Add(gwu.NewHTML(`<h1>Backer</h1>`))
+
+	type Counter struct {
+		name string
+		n    *int64
+	}
+	loaded := []Counter{{"ui", new(int64)}}
+	renderLoaded := func() string {
+		var b strings.Builder
+		fmt.Fprint(&b, "Loaded:")
+		for _, c := range loaded {
+			n := atomic.LoadInt64(c.n)
+			fmt.Fprintf(&b, " %s: %v", c.name, n)
+		}
+		return b.String()
+	}
+	loadedPane := gwu.NewLabel(renderLoaded())
+	win.Add(loadedPane)
 
 	db, err := tiedot.OpenDB(dbPath)
 	if err != nil {
@@ -77,6 +96,8 @@ func main() {
 		}
 		// TODO(akavel): [LATER] error on duplicate (?)
 		backends[id] = b
+		n := new(int64)
+		loaded = append(loaded, Counter{id, n})
 		// TODO(akavel): add backend ID to DB collection "Backends"
 
 		// Start loading entries
@@ -89,6 +110,7 @@ func main() {
 			debugf("scanning %s", id)
 			err := b.Walk(func(f File) {
 				files <- f
+				atomic.AddInt64(n, 1)
 			})
 			// close(files)
 
@@ -201,6 +223,10 @@ func main() {
 		debugln("tick...")
 		// date.Panel.Add(gwu.NewHTML(`<p>datetick...</p>`))
 
+		// loadedPane.SetText(fmt.Sprintf("Loaded: %d", loaded))
+		loadedPane.SetText(renderLoaded())
+		e.MarkDirty(loadedPane)
+
 		for i := 0; i < 20; i++ {
 			var f itemForUI
 			select {
@@ -256,6 +282,7 @@ func main() {
 				date.Panel.Add(img)
 				e.MarkDirty(date.Panel)
 				// e.MarkDirty(img)
+				atomic.AddInt64(loaded[0].n, 1)
 			} else if !f.Date.Equal(files[i].Date) {
 				files = append(files[:i], append([]UIFile{{
 					Date: f.Date,
@@ -266,6 +293,7 @@ func main() {
 				date.Panel.Insert(img, i)
 				e.MarkDirty(date.Panel)
 				// e.MarkDirty(img)
+				atomic.AddInt64(loaded[0].n, 1)
 			} else {
 				debugln("not showing", f.Date, f.DBID)
 			}

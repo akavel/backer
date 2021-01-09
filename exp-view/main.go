@@ -55,7 +55,7 @@ func main() {
 		fmt.Fprint(&b, "Loaded:")
 		for _, c := range loaded {
 			n := atomic.LoadInt64(c.n)
-			fmt.Fprintf(&b, " %s: %v", c.name, n)
+			fmt.Fprintf(&b, " %q: %v", c.name, n)
 		}
 		return b.String()
 	}

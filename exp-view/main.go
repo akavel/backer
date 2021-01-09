@@ -2,7 +2,7 @@ package main
 
 import (
 	"sync"
-	"time"
+	// "time"
 	// "encoding/json"
 	"fmt"
 	// "io/ioutil"
@@ -15,14 +15,6 @@ import (
 type Backend interface {
 	Open() (string, error)
 	Walk(func(File)) error
-}
-
-type File struct {
-	Hash string    // TODO[LATER]: kind info, e.g. sha256
-	Date time.Time // TODO[LATER]: source kind info, e.g. jpeg
-	// Found maps backend ID to file ID in this backend (e.g. path)
-	Found     map[string]string
-	Thumbnail string // TODO[LATER]: check how db handles []byte
 }
 
 // FIXME: move to config (json? ini? ...?) file and/or in DB
@@ -72,12 +64,18 @@ func main() {
 			// TODO: first, just load .jpg previews and show them + calc hash + save date in DB + save filename in DB
 			// TODO[LATER]: handling of errors on files?
 			debugf("scanning %s", id)
-			err := b.Walk(func(f File) {
-				for k, v := range f.Found {
-					fmt.Println("found:", f.Hash, k, v)
-					break
+			files := make(chan File, 1)
+			go func() {
+				for f := range files {
+					k, v := f.Found()
+					fmt.Println("found:", f.Hash(), k, v)
 				}
+			}()
+			err := b.Walk(func(f File) {
+				files <- f
 			})
+			close(files)
+
 			if err != nil {
 				problemf("loading entries: %w", err)
 				return

@@ -172,6 +172,7 @@ func main() {
 					debugln("exists:", id)
 					infof("update start %v", id)
 					err := dbFiles.UpdateBytesFunc(id, func(before []byte) (after []byte, err error) {
+						infof("in update %v", id)
 						// unmarshal
 						var doc struct {
 							Hash      string                         `json:"hash"`

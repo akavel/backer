@@ -33,6 +33,7 @@ const dbPath = "database"
 func main() {
 	win := gwu.NewWindow("main", "Backer viewer")
 	win.Style().SetFullWidth()
+	// win.Add(gwu.NewHTML(`<h1>Backer</h1>`))
 
 	db, err := tiedot.OpenDB(dbPath)
 	if err != nil {
@@ -175,7 +176,8 @@ func main() {
 	uiDates = append(uiDates, UIDate{
 		Panel: gwu.NewNaturalPanel(),
 	})
-	win.Add(uiDates[0].Panel)
+	date := &uiDates[0]
+	win.Add(date.Panel)
 
 	// TODO: show image previews with directory names, sorted by date
 	// TODO[LATER]: pagination
@@ -183,6 +185,7 @@ func main() {
 	refresh.SetRepeat(true)
 	refresh.AddEHandlerFunc(func(e gwu.Event) {
 		debugln("tick...")
+		date.Panel.Add(gwu.NewHTML(`<p>datetick...</p>`))
 
 		for i := 0; i < 20; i++ {
 			var f itemForUI
@@ -193,7 +196,6 @@ func main() {
 				continue
 			}
 
-			date := &uiDates[0]
 			files := date.Files
 			i := sort.Search(len(files), func(i int) bool {
 				return !f.Date.After(files[i].Date) // f.date <= files[i].date

@@ -195,18 +195,25 @@ func main() {
 					Date: f.Date,
 					DBID: f.DBID,
 				})
-				date.Panel.Add(gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID)))
 				debugln("showing new", f.Date, f.DBID)
+				img := gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID))
+				date.Panel.Add(img)
+				e.MarkDirty(date.Panel)
+				e.MarkDirty(img)
 			} else if !f.Date.Equal(files[i].Date) {
 				files = append(append(files[:i], UIFile{
 					Date: f.Date,
 					DBID: f.DBID,
 				}), files[i:]...)
 				debugln("showing old", f.Date, f.DBID)
-				date.Panel.Insert(gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID)), i)
+				img := gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID))
+				date.Panel.Insert(img, i)
+				e.MarkDirty(date.Panel)
+				e.MarkDirty(img)
 			} else {
 				debugln("not showing", f.Date, f.DBID)
 			}
+			date.Files = files
 
 			limit--
 			if limit == 0 {
@@ -218,6 +225,7 @@ func main() {
 
 	// Serve thumbnails over HTTP for <img src="/thumb/...">
 	http.Handle("/hash/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		debugf("HASH QUERY! %s", r.URL.Path)
 		ids := map[int]struct{}{}
 		err := tiedot.EvalQuery(
 			query.Eq(r.URL.Path, query.Path{"hash"}),

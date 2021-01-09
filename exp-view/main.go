@@ -183,8 +183,15 @@ func main() {
 	refresh.AddEHandlerFunc(func(e gwu.Event) {
 		debugln("tick...")
 
-		limit := 20
-		for f := range itemsForUI {
+		for i := 0; i < 20; i++ {
+			var f itemForUI
+			select {
+			case f = <-itemsForUI:
+				// OK
+			default:
+				continue
+			}
+
 			date := &uiDates[0]
 			files := date.Files
 			i := sort.Search(len(files), func(i int) bool {
@@ -215,16 +222,15 @@ func main() {
 			}
 			date.Files = files
 
-			limit--
-			if limit == 0 {
-				return
-			}
+			e.MarkDirty(win)
 		}
+
+		debugln("ITERATION FIN")
 	}, gwu.ETypeStateChange)
 	win.Add(refresh) // TODO[LATER]: add to server instead, to make sure it always runs in bg
 
 	// Serve thumbnails over HTTP for <img src="/thumb/...">
-	http.Handle("/hash/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("/thumb/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		debugf("HASH QUERY! %s", r.URL.Path)
 		ids := map[int]struct{}{}
 		err := tiedot.EvalQuery(

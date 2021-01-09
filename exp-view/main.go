@@ -1,13 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
@@ -115,9 +117,9 @@ func main() {
 			}
 			if len(ids) == 0 {
 				id, err := dbFiles.Insert(map[string]interface{}{
-					"hash":      f.Hash(),
-					"date":      f.Date(),
-					"thumbnail": f.Thumbnail(),
+					"hash": f.Hash(),
+					"date": f.Date(),
+					"thumbnail": base64.StdEncoding.EncodeToString(f.Thumbnail()),
 				})
 				if err != nil {
 					log.Fatal("inserting in DB:", err)
@@ -185,7 +187,7 @@ func main() {
 	refresh.SetRepeat(true)
 	refresh.AddEHandlerFunc(func(e gwu.Event) {
 		debugln("tick...")
-		date.Panel.Add(gwu.NewHTML(`<p>datetick...</p>`))
+		// date.Panel.Add(gwu.NewHTML(`<p>datetick...</p>`))
 
 		for i := 0; i < 20; i++ {
 			var f itemForUI
@@ -247,9 +249,12 @@ func main() {
 			w.WriteHeader(http.StatusNotFound)
 		}
 
-		thumb := doc["thumbnail"].(string)
+		thumbEnc := doc["thumbnail"].(string)
+		thumb, _ := base64.StdEncoding.DecodeString(thumbEnc)
+
+		debugf("MAGIC 0x%s", hex.EncodeToString([]byte(thumb[:4])))
 		// TODO[LATER]: provide more metadata below maybe?
-		http.ServeContent(w, r, "", time.Time{}, strings.NewReader(thumb))
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader([]byte(thumb)))
 	})))
 
 	// Create and start a GUI server (omitting error check)

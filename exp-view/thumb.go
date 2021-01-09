@@ -15,6 +15,7 @@ import (
 func thumbnailImage(r io.Reader, maxw, maxh int) ([]byte, error) {
 	src, err := imaging.Decode(r, imaging.AutoOrientation(true))
 	typ := "jpeg"
+	// _ = imaging.Decode
 	// src, typ, err := image.Decode(r)
 	if err != nil {
 		return nil, fmt.Errorf("parsing image for thumbnail: %w", err)

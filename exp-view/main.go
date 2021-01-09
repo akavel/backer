@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -109,6 +108,8 @@ func main() {
 			// TODO[LATER]: handling of errors on files?
 			debugf("scanning %s", id)
 			err := b.Walk(func(f File) {
+				k, v := f.Found()
+				debugf("found %q: %q", k, v)
 				files <- f
 				atomic.AddInt64(n, 1)
 			})
@@ -134,7 +135,9 @@ func main() {
 		// TODO: start by processing files not existing in DB under specific "Found" ID; only then refresh files already existing in DB
 		for f := range files {
 			k, v := f.Found()
-			debugln("found:", f.Hash(), f.Date(), k, v)
+			infof("processing: %q %s", k, v)
+			// debugln("processing:", f.Hash(), f.Date(), k, v)
+			infof("processing fetch: %s %v %q %s", f.Hash(), f.Date(), k, v)
 			// Does such entry already exist?
 			ids := map[int]struct{}{}
 			err := tiedot.EvalQuery(
@@ -149,6 +152,11 @@ func main() {
 					"hash":      f.Hash(),
 					"date":      f.Date(),
 					"thumbnail": base64.StdEncoding.EncodeToString(f.Thumbnail()),
+					"found": map[string]map[string]struct{}{
+						k: map[string]struct{}{
+							v: struct{}{},
+						},
+					},
 				})
 				if err != nil {
 					log.Fatal("inserting in DB:", err)
@@ -160,8 +168,49 @@ func main() {
 				}
 			} else {
 				// FIXME: update DB
-				for k := range ids {
-					debugln("exists:", k)
+				for id := range ids {
+					debugln("exists:", id)
+					infof("update start %v", id)
+					err := dbFiles.UpdateBytesFunc(id, func(before []byte) (after []byte, err error) {
+						// unmarshal
+						var doc struct {
+							Hash      string                         `json:"hash"`
+							Date      time.Time                      `json:"date"`
+							Thumbnail string                         `json:"thumbnail"`
+							Found     map[string]map[string]struct{} `json:"found"`
+						}
+						err = json.Unmarshal(before, &doc)
+						if err != nil {
+							return before, err
+						}
+						// validate .hash
+						if doc.Hash != f.Hash() {
+							return before, fmt.Errorf("hash mismatch, db=%q, update=%q", doc.Hash, f.Hash())
+						}
+						// update .found with new path
+						if doc.Found == nil {
+							doc.Found = map[string]map[string]struct{}{}
+						}
+						if doc.Found[k] == nil {
+							doc.Found[k] = map[string]struct{}{}
+						}
+						doc.Found[k][v] = struct{}{}
+						// [TEMPORARY] update .thumbnail, old may be wrongly rotated
+						doc.Thumbnail = base64.StdEncoding.EncodeToString(f.Thumbnail())
+						// [DEBUG] .found
+						tmp, _ := json.Marshal(doc.Found)
+						debugf("updating %q: %s", doc.Hash, string(tmp))
+						// marshal
+						after, err = json.Marshal(doc)
+						if err != nil {
+							return before, err
+						}
+						return after, nil
+					})
+					infof("update end %v", id)
+					if err != nil {
+						problemf("updating %v in DB: %w", id, err)
+					}
 					break
 				}
 			}
@@ -227,7 +276,7 @@ func main() {
 		loadedPane.SetText(renderLoaded())
 		e.MarkDirty(loadedPane)
 
-		for i := 0; i < 20; i++ {
+		for i := 0; i < 100; i++ {
 			var f itemForUI
 			select {
 			case f = <-itemsForUI:
@@ -265,7 +314,7 @@ func main() {
 			for _, d := range uiDates {
 				tmp = append(tmp, d.Date)
 			}
-			debugf("DATES: %v", tmp)
+			// debugf("DATES: %v", tmp)
 
 			// Find file with same date (and then skip), or create if not found
 			files := date.Files
@@ -308,7 +357,7 @@ func main() {
 
 	// Serve thumbnails over HTTP for <img src="/thumb/...">
 	http.Handle("/thumb/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		debugf("HASH QUERY! %s", r.URL.Path)
+		// debugf("HASH QUERY! %s", r.URL.Path)
 		id, err := strconv.ParseInt(r.URL.Path, 10, 64)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -324,7 +373,6 @@ func main() {
 		thumbEnc := doc["thumbnail"].(string)
 		thumb, _ := base64.StdEncoding.DecodeString(thumbEnc)
 
-		debugf("MAGIC 0x%s", hex.EncodeToString([]byte(thumb[:4])))
 		// TODO[LATER]: provide more metadata below maybe?
 		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader([]byte(thumb)))
 	})))

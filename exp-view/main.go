@@ -117,8 +117,8 @@ func main() {
 			}
 			if len(ids) == 0 {
 				id, err := dbFiles.Insert(map[string]interface{}{
-					"hash": f.Hash(),
-					"date": f.Date(),
+					"hash":      f.Hash(),
+					"date":      f.Date(),
 					"thumbnail": base64.StdEncoding.EncodeToString(f.Thumbnail()),
 				})
 				if err != nil {
@@ -159,6 +159,10 @@ func main() {
 		debugf("DONE scanning DB")
 	}()
 
+	photos := gwu.NewNaturalPanel()
+	win.Add(photos)
+	win.CellFmt(photos).Style().SetFullWidth()
+
 	// UI state.
 	// (For now, only: date + db_ID for retrieving thumbnail)
 	type UIFile struct {
@@ -174,13 +178,13 @@ func main() {
 	}
 	var uiDates []UIDate
 
-	// TMP
-	uiDates = append(uiDates, UIDate{
-		Panel: gwu.NewNaturalPanel(),
-	})
-	date := &uiDates[0]
-	win.Add(date.Panel)
-	win.CellFmt(date.Panel).Style().SetFullWidth()
+	// // TMP
+	// uiDates = append(uiDates, UIDate{
+	// 	Panel: gwu.NewNaturalPanel(),
+	// })
+	// date := &uiDates[0]
+	// win.Add(date.Panel)
+	// win.CellFmt(date.Panel).Style().SetFullWidth()
 
 	// TODO: show image previews with directory names, sorted by date
 	// TODO[LATER]: pagination
@@ -199,8 +203,40 @@ func main() {
 				continue
 			}
 
+			// Find date row for specific file, or create if not found
+			const fmtDate = "2006-01-02"
+			dateStr := f.Date.Format(fmtDate)
+			i := sort.Search(len(uiDates), func(i int) bool {
+				return dateStr <= uiDates[i].Date
+			})
+			if i == len(uiDates) {
+				uiDates = append(uiDates, UIDate{
+					Date:  dateStr,
+					Panel: gwu.NewNaturalPanel(),
+				})
+				uiDates[i].Panel.Add(gwu.NewHTML(`<h3>` + dateStr + `</h3>`))
+				photos.Add(uiDates[i].Panel)
+				photos.CellFmt(uiDates[i].Panel).Style().SetFullWidth()
+			} else if dateStr != uiDates[i].Date {
+				uiDates = append(uiDates[:i], append([]UIDate{{
+					Date:  dateStr,
+					Panel: gwu.NewNaturalPanel(),
+				}}, uiDates[i:]...)...)
+				uiDates[i].Panel.Add(gwu.NewHTML(`<h3>` + dateStr + `</h3>`))
+				photos.Insert(uiDates[i].Panel, i)
+				photos.CellFmt(uiDates[i].Panel).Style().SetFullWidth()
+			}
+			date := &uiDates[i]
+
+			tmp := []string{}
+			for _, d := range uiDates {
+				tmp = append(tmp, d.Date)
+			}
+			debugf("DATES: %v", tmp)
+
+			// Find file with same date (and then skip), or create if not found
 			files := date.Files
-			i := sort.Search(len(files), func(i int) bool {
+			i = sort.Search(len(files), func(i int) bool {
 				return !f.Date.After(files[i].Date) // f.date <= files[i].date
 			})
 			if i == len(files) {
@@ -212,23 +248,23 @@ func main() {
 				img := gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID))
 				date.Panel.Add(img)
 				e.MarkDirty(date.Panel)
-				e.MarkDirty(img)
+				// e.MarkDirty(img)
 			} else if !f.Date.Equal(files[i].Date) {
-				files = append(append(files[:i], UIFile{
+				files = append(files[:i], append([]UIFile{{
 					Date: f.Date,
 					DBID: f.DBID,
-				}), files[i:]...)
+				}}, files[i:]...)...)
 				debugln("showing old", f.Date, f.DBID)
 				img := gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID))
 				date.Panel.Insert(img, i)
 				e.MarkDirty(date.Panel)
-				e.MarkDirty(img)
+				// e.MarkDirty(img)
 			} else {
 				debugln("not showing", f.Date, f.DBID)
 			}
 			date.Files = files
 
-			e.MarkDirty(win)
+			e.MarkDirty(photos)
 		}
 
 		debugln("ITERATION FIN")

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -32,7 +33,13 @@ var tryBackends = []Backend{
 // FIXME: move to config and/or flag
 const dbPath = "database"
 
+var (
+	debug = flag.Bool("debug", false, "Enable debugging messages")
+)
+
 func main() {
+	flag.Parse()
+
 	win := gwu.NewWindow("main", "Backer viewer")
 	win.Style().SetFullWidth()
 	// win.Add(gwu.NewHTML(`<h1>Backer</h1>`))
@@ -89,7 +96,7 @@ func main() {
 				problemf("loading entries: %w", err)
 				return
 			} else {
-				debugf("DONE scanning %q", id)
+				infof("DONE scanning %q", id)
 			}
 		}()
 	}
@@ -156,7 +163,7 @@ func main() {
 			}
 			return true
 		})
-		debugf("DONE scanning DB")
+		infof("DONE scanning DB")
 	}()
 
 	photos := gwu.NewNaturalPanel()
@@ -303,10 +310,18 @@ func main() {
 }
 
 func debugf(format string, args ...interface{}) {
-	log.Println("(debug)", fmt.Errorf(format, args...))
+	if *debug {
+		log.Println("(debug)", fmt.Errorf(format, args...))
+	}
 }
 func debugln(args ...interface{}) {
-	log.Println(append([]interface{}{"(debug)"}, args...)...)
+	if *debug {
+		log.Println(append([]interface{}{"(debug)"}, args...)...)
+	}
+}
+
+func infof(format string, args ...interface{}) {
+	log.Println("info:", fmt.Errorf(format, args...))
 }
 
 func problemf(format string, args ...interface{}) {

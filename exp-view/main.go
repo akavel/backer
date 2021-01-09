@@ -1,12 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
@@ -232,30 +233,21 @@ func main() {
 	// Serve thumbnails over HTTP for <img src="/thumb/...">
 	http.Handle("/thumb/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		debugf("HASH QUERY! %s", r.URL.Path)
-		ids := map[int]struct{}{}
-		err := tiedot.EvalQuery(
-			query.Eq(r.URL.Path, query.Path{"hash"}),
-			dbFiles,
-			&ids)
-		if err != nil || len(ids) == 0 {
-			warnf("THUMB querying DB for %q: %s", r.URL.Path, err)
-			w.WriteHeader(http.StatusNotFound)
+		id, err := strconv.ParseInt(r.URL.Path, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		// TODO[LATER]: warn if len(ids) > 1
-		var doc map[string]interface{}
-		for id := range ids {
-			doc, err = dbFiles.Read(id)
-			break
-		}
+		doc, err := dbFiles.Read(int(id))
 		if err != nil {
-			panic(err) // TODO[LATER]: don't panic
+			warnf("/thumb/%v DB error: %s", id, err)
+			w.WriteHeader(http.StatusNotFound)
 		}
 
-		thumb := doc["thumbnail"].([]byte)
+		thumb := doc["thumbnail"].(string)
 		// TODO[LATER]: provide more metadata below maybe?
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(thumb))
+		http.ServeContent(w, r, "", time.Time{}, strings.NewReader(thumb))
 	})))
 
 	// Create and start a GUI server (omitting error check)

@@ -180,6 +180,7 @@ func main() {
 	})
 	date := &uiDates[0]
 	win.Add(date.Panel)
+	win.CellFmt(date.Panel).Style().SetFullWidth()
 
 	// TODO: show image previews with directory names, sorted by date
 	// TODO[LATER]: pagination

@@ -1,12 +1,13 @@
 package main
 
 import (
-	// "sync"
-	"time"
-	// "encoding/json"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	// "io/ioutil"
 	"log"
+	"net/http"
+	"sort"
+	"time"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
 	"github.com/icza/gowut/gwu"
@@ -83,12 +84,21 @@ func main() {
 			if err != nil {
 				problemf("loading entries: %w", err)
 				return
+			} else {
+				debugf("DONE scanning %q", id)
 			}
 		}()
 	}
 	// wg.Wait()
 
+	type itemForUI struct {
+		Date time.Time
+		DBID int // for showing thumbnail
+	}
+	itemsForUI := make(chan itemForUI, 100)
+
 	go func() {
+		// TODO: start by processing files not existing in DB under specific "Found" ID; only then refresh files already existing in DB
 		for f := range files {
 			k, v := f.Found()
 			debugln("found:", f.Hash(), f.Date(), k, v)
@@ -111,6 +121,10 @@ func main() {
 					log.Fatal("inserting in DB:", err)
 				}
 				debugln("inserted:", id)
+				itemsForUI <- itemForUI{
+					Date: f.Date(),
+					DBID: id,
+				}
 			} else {
 				// FIXME: update DB
 				for k := range ids {
@@ -121,14 +135,114 @@ func main() {
 		}
 	}()
 
+	// Fetch data into UI from DB
+	go func() {
+		dbFiles.ForEachDoc(func(id int, doc []byte) (moveOn bool) {
+			var f struct {
+				Date time.Time `json:"date"`
+			}
+			err := json.Unmarshal(doc, &f)
+			if err != nil {
+				panic(fmt.Errorf("failed to decode file: %s\nRAW: %s", err, string(doc)))
+			}
+			debugln("decoded:", f.Date, id)
+			itemsForUI <- itemForUI{
+				DBID: id,
+				Date: f.Date,
+			}
+			return true
+		})
+		debugf("DONE scanning DB")
+	}()
+
+	// UI state.
+	// (For now, only: date + db_ID for retrieving thumbnail)
+	type UIFile struct {
+		Date time.Time
+		DBID int // TODO[LATER]: some DB with explicit int64 for IDs?
+		// gwu.Panel
+	}
+	type UIDate struct {
+		Date string
+		gwu.Panel
+
+		Files []UIFile
+	}
+	var uiDates []UIDate
+
+	// TMP
+	uiDates = append(uiDates, UIDate{
+		Panel: gwu.NewNaturalPanel(),
+	})
+	win.Add(uiDates[0].Panel)
+
 	// TODO: show image previews with directory names, sorted by date
 	// TODO[LATER]: pagination
 	refresh := gwu.NewTimer(time.Second)
 	refresh.SetRepeat(true)
 	refresh.AddEHandlerFunc(func(e gwu.Event) {
 		debugln("tick...")
+
+		limit := 20
+		for f := range itemsForUI {
+			date := &uiDates[0]
+			files := date.Files
+			i := sort.Search(len(files), func(i int) bool {
+				return !f.Date.After(files[i].Date) // f.date <= files[i].date
+			})
+			if i == len(files) {
+				files = append(files, UIFile{
+					Date: f.Date,
+					DBID: f.DBID,
+				})
+				date.Panel.Add(gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID)))
+				debugln("showing new", f.Date, f.DBID)
+			} else if !f.Date.Equal(files[i].Date) {
+				files = append(append(files[:i], UIFile{
+					Date: f.Date,
+					DBID: f.DBID,
+				}), files[i:]...)
+				debugln("showing old", f.Date, f.DBID)
+				date.Panel.Insert(gwu.NewImage("", fmt.Sprint("/thumb/", f.DBID)), i)
+			} else {
+				debugln("not showing", f.Date, f.DBID)
+			}
+
+			limit--
+			if limit == 0 {
+				return
+			}
+		}
 	}, gwu.ETypeStateChange)
 	win.Add(refresh) // TODO[LATER]: add to server instead, to make sure it always runs in bg
+
+	// Serve thumbnails over HTTP for <img src="/thumb/...">
+	http.Handle("/hash/", http.StripPrefix("/thumb/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids := map[int]struct{}{}
+		err := tiedot.EvalQuery(
+			query.Eq(r.URL.Path, query.Path{"hash"}),
+			dbFiles,
+			&ids)
+		if err != nil || len(ids) == 0 {
+			warnf("THUMB querying DB for %q: %s", r.URL.Path, err)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		// TODO[LATER]: warn if len(ids) > 1
+		var doc map[string]interface{}
+		for id := range ids {
+			doc, err = dbFiles.Read(id)
+			break
+		}
+		if err != nil {
+			panic(err) // TODO[LATER]: don't panic
+		}
+
+		thumb := doc["thumbnail"].([]byte)
+		// TODO[LATER]: provide more metadata below maybe?
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(thumb))
+	})))
 
 	// Create and start a GUI server (omitting error check)
 	// TODO: port choice - randomize or take flag

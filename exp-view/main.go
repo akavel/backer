@@ -1,10 +1,11 @@
 package main
 
 import (
+	"sync"
 	"time"
 	// "encoding/json"
-	// "fmt"
-	"io/ioutil"
+	"fmt"
+	// "io/ioutil"
 	"log"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
@@ -12,7 +13,7 @@ import (
 )
 
 type Backend interface {
-	Open() error
+	Open() (string, error)
 	Walk(func(File)) error
 }
 
@@ -52,6 +53,7 @@ func main() {
 
 	// Initialize & autodetect backends
 	backends := map[string]Backend{}
+	var wg sync.WaitGroup
 	for _, b := range tryBackends {
 		id, err := b.Open()
 		if err != nil {
@@ -64,9 +66,12 @@ func main() {
 
 		// Start loading entries
 		b := b
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			// TODO: first, just load .jpg previews and show them + calc hash + save date in DB + save filename in DB
 			// TODO[LATER]: handling of errors on files?
+			debugf("scanning %s", id)
 			err := b.Walk(func(f File) {
 				for k, v := range f.Found {
 					fmt.Println("found:", f.Hash, k, v)
@@ -79,6 +84,7 @@ func main() {
 			}
 		}()
 	}
+	wg.Wait()
 
 	// TODO: show image previews with directory names, sorted by date
 
@@ -87,17 +93,17 @@ func main() {
 	server := gwu.NewServer("backer-viewer", "localhost:8081")
 	server.SetText("Backer viewer app")
 	server.AddWin(win)
-	server.Start("main")
+	// server.Start("main")
 }
 
 func debugf(format string, args ...interface{}) {
-	log.Printf("(debug) "+format, args...)
+	log.Println("(debug)", fmt.Errorf(format, args...))
 }
 
 func problemf(format string, args ...interface{}) {
-	log.Printf("ERROR: "+format, args...)
+	log.Println("ERROR:", fmt.Errorf(format, args...))
 }
 
 func warnf(format string, args ...interface{}) {
-	log.Printf("Warning: "+format, args...)
+	log.Println("Warning:", fmt.Errorf(format, args...))
 }

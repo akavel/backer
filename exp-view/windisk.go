@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rwcarlsen/goexif/exif"
 )
@@ -36,7 +39,7 @@ func (d *WinDisk) Open() (string, error) {
 }
 
 func (d *WinDisk) Walk(fn func(File)) error {
-	root := filepath.Base(d.Marker)
+	root := filepath.Dir(d.Marker)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			warnf("walking %q/%s: %w", d.id, path, err)
@@ -45,6 +48,12 @@ func (d *WinDisk) Walk(fn func(File)) error {
 		if info.IsDir() {
 			return nil
 		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			warnf("walking %q/%s: %w", d.id, path, err)
+			return nil
+		}
+		path = rel
 		switch strings.ToLower(filepath.Ext(path)) {
 		case ".jpg", ".jpeg":
 			// TODO[LATER]: streamed processing
@@ -61,13 +70,13 @@ func (d *WinDisk) Walk(fn func(File)) error {
 			// TODO[LATER] try https://godoc.org/github.com/dsoprea/go-exif/v3 to maybe also support PNGs
 			var t time.Time
 			x, err := exif.Decode(bytes.NewReader(raw))
-			if err == nil {
-				warnf("timestamping %q/%s: %w", err)
+			if err != nil {
+				warnf("timestamping %q/%s: %w", d.id, path, err)
 			}
 			if x != nil {
 				t, err = x.DateTime()
 				if err != nil {
-					warnf("timestamping %q/%s: %w", err)
+					warnf("timestamping %q/%s: %w", d.id, path, err)
 				}
 			}
 			sha := sha256.Sum256(raw)

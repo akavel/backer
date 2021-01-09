@@ -68,7 +68,7 @@ func main() {
 			go func() {
 				for f := range files {
 					k, v := f.Found()
-					fmt.Println("found:", f.Hash(), k, v)
+					fmt.Println("found:", f.Hash(), f.Date(), k, v)
 				}
 			}()
 			err := b.Walk(func(f File) {

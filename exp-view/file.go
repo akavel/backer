@@ -13,6 +13,7 @@ import (
 )
 
 type File interface {
+	// FIXME(akavel): Size() int64
 	Hash() string    // TODO[LATER]: kind info, e.g. sha256
 	Date() time.Time // TODO[LATER]: source kind info, e.g. jpeg
 	// Found maps backend ID to file ID in this backend (e.g. path)

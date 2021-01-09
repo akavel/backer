@@ -1,8 +1,8 @@
 package main
 
 import (
-	"sync"
-	// "time"
+	// "sync"
+	"time"
 	// "encoding/json"
 	"fmt"
 	// "io/ioutil"
@@ -10,6 +10,8 @@ import (
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
 	"github.com/icza/gowut/gwu"
+
+	"github.com/akavel/backer/exp-view/query"
 )
 
 type Backend interface {
@@ -36,6 +38,14 @@ func main() {
 	}
 	defer db.Close()
 
+	dbFiles, err := tiedot.OpenCol(db, "Files")
+	if err != nil {
+		log.Fatal(err)
+	}
+	// TODO[LATER]: detect errors other than "already exists"
+	dbFiles.Index([]string{"date"})
+	dbFiles.Index([]string{"hash"})
+
 	// TODO: load data from DB
 
 	// TODO: scan new data into DB
@@ -45,7 +55,8 @@ func main() {
 
 	// Initialize & autodetect backends
 	backends := map[string]Backend{}
-	var wg sync.WaitGroup
+	files := make(chan File, 100)
+	// var wg sync.WaitGroup
 	for _, b := range tryBackends {
 		id, err := b.Open()
 		if err != nil {
@@ -58,23 +69,16 @@ func main() {
 
 		// Start loading entries
 		b := b
-		wg.Add(1)
+		// wg.Add(1)
 		go func() {
-			defer wg.Done()
+			// defer wg.Done()
 			// TODO: first, just load .jpg previews and show them + calc hash + save date in DB + save filename in DB
 			// TODO[LATER]: handling of errors on files?
 			debugf("scanning %s", id)
-			files := make(chan File, 1)
-			go func() {
-				for f := range files {
-					k, v := f.Found()
-					fmt.Println("found:", f.Hash(), f.Date(), k, v)
-				}
-			}()
 			err := b.Walk(func(f File) {
 				files <- f
 			})
-			close(files)
+			// close(files)
 
 			if err != nil {
 				problemf("loading entries: %w", err)
@@ -82,20 +86,63 @@ func main() {
 			}
 		}()
 	}
-	wg.Wait()
+	// wg.Wait()
+
+	go func() {
+		for f := range files {
+			k, v := f.Found()
+			debugln("found:", f.Hash(), f.Date(), k, v)
+			// Does such entry already exist?
+			ids := map[int]struct{}{}
+			err := tiedot.EvalQuery(
+				query.Eq(f.Hash(), query.Path{"hash"}),
+				dbFiles,
+				&ids)
+			if err != nil {
+				log.Fatal("querying DB for hash:", err)
+			}
+			if len(ids) == 0 {
+				id, err := dbFiles.Insert(map[string]interface{}{
+					"hash":      f.Hash(),
+					"date":      f.Date(),
+					"thumbnail": f.Thumbnail(),
+				})
+				if err != nil {
+					log.Fatal("inserting in DB:", err)
+				}
+				debugln("inserted:", id)
+			} else {
+				// FIXME: update DB
+				for k := range ids {
+					debugln("exists:", k)
+					break
+				}
+			}
+		}
+	}()
 
 	// TODO: show image previews with directory names, sorted by date
+	// TODO[LATER]: pagination
+	refresh := gwu.NewTimer(time.Second)
+	refresh.SetRepeat(true)
+	refresh.AddEHandlerFunc(func(e gwu.Event) {
+		debugln("tick...")
+	}, gwu.ETypeStateChange)
+	win.Add(refresh) // TODO[LATER]: add to server instead, to make sure it always runs in bg
 
 	// Create and start a GUI server (omitting error check)
 	// TODO: port choice - randomize or take flag
 	server := gwu.NewServer("backer-viewer", "localhost:8081")
 	server.SetText("Backer viewer app")
 	server.AddWin(win)
-	// server.Start("main")
+	server.Start("main")
 }
 
 func debugf(format string, args ...interface{}) {
 	log.Println("(debug)", fmt.Errorf(format, args...))
+}
+func debugln(args ...interface{}) {
+	log.Println(append([]interface{}{"(debug)"}, args...)...)
 }
 
 func problemf(format string, args ...interface{}) {

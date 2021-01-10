@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -14,11 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	tiedot "github.com/HouzuoGuo/tiedot/db"
 	"github.com/icza/gowut/gwu"
 
-	"github.com/akavel/backer/exp-view/db"
-	"github.com/akavel/backer/exp-view/query"
+	"github.com/akavel/backer/exp-view/dbs"
 )
 
 type Backend interface {
@@ -63,7 +59,7 @@ func main() {
 	loadedPane := gwu.NewLabel(renderLoaded())
 	win.Add(loadedPane)
 
-	db, err := db.NewTiedot(dbPath)
+	db, err := dbs.NewTiedot(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -113,7 +109,7 @@ func main() {
 
 	type itemForUI struct {
 		Date time.Time
-		DBID int // for showing thumbnail
+		DBID int64 // for showing thumbnail
 	}
 	itemsForUI := make(chan itemForUI, 100)
 
@@ -124,7 +120,7 @@ func main() {
 			infof("processing: %q %s", k, v)
 			// debugln("processing:", f.Hash(), f.Date(), k, v)
 			infof("processing fetch: %s %v %q %s", f.Hash(), f.Date(), k, v)
-			id, err := db.FileUpsert(&db.File{
+			id, err := db.FileUpsert(&dbs.File{
 				Hash:      f.Hash(),
 				Date:      f.Date(),
 				Thumbnail: f.Thumbnail(),
@@ -142,7 +138,7 @@ func main() {
 
 	// Fetch data into UI from DB
 	go func() {
-		db.FileEach(func(id int, f *db.File) error {
+		db.FileEach(func(id int64, f *dbs.File) error {
 			itemsForUI <- itemForUI{
 				DBID: id,
 				Date: f.Date,
@@ -160,7 +156,7 @@ func main() {
 	// (For now, only: date + db_ID for retrieving thumbnail)
 	type UIFile struct {
 		Date time.Time
-		DBID int // TODO[LATER]: some DB with explicit int64 for IDs?
+		DBID int64 // TODO[LATER]: some DB with explicit int64 for IDs?
 		// gwu.Panel
 	}
 	type UIDate struct {
@@ -279,17 +275,13 @@ func main() {
 			return
 		}
 
-		doc, err := dbFiles.Read(int(id))
+		f, err := db.File(id)
 		if err != nil {
 			warnf("/thumb/%v DB error: %s", id, err)
 			w.WriteHeader(http.StatusNotFound)
 		}
-
-		thumbEnc := doc["thumbnail"].(string)
-		thumb, _ := base64.StdEncoding.DecodeString(thumbEnc)
-
 		// TODO[LATER]: provide more metadata below maybe?
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader([]byte(thumb)))
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(f.Thumbnail))
 	})))
 
 	// Create and start a GUI server (omitting error check)

@@ -1,21 +1,26 @@
-package db
+package dbs
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	tiedot "github.com/HouzuoGuo/tiedot/db"
 
 	"github.com/akavel/backer/exp-view/query"
 )
 
-type ErrNotFound struct{ error }
+// type ErrNotFound struct{ error }
 
 type DB interface {
 	Close() error
 
 	FileUpsert(f *File) (int64, error)
 	FileEach(func(int64, *File) error) error
+	File(id int64) (*File, error)
 }
 
 type tdb struct {
@@ -26,7 +31,7 @@ type tdb struct {
 type untyped = map[string]interface{}
 
 func NewTiedot(path string) (DB, error) {
-	t, err := tiedot.OpenDB(dbPath)
+	t, err := tiedot.OpenDB(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening tiedot DB: %w", err)
 	}
@@ -45,7 +50,7 @@ func NewTiedot(path string) (DB, error) {
 				path, ind, err)
 		}
 	}
-	return tdb{
+	return &tdb{
 		t:     t,
 		files: files,
 	}, nil
@@ -53,7 +58,7 @@ func NewTiedot(path string) (DB, error) {
 
 func (db *tdb) Close() error { return db.t.Close() }
 
-func (db *tdb) FileUpsert(f *db.File) (int64, error) {
+func (db *tdb) FileUpsert(f *File) (int64, error) {
 	// validation
 	{
 		if len(f.Found) != 1 {
@@ -80,11 +85,11 @@ func (db *tdb) FileUpsert(f *db.File) (int64, error) {
 			"found":     f.Found,
 		})
 		if err != nil {
-			return id, fmt.Errorf("tiedot DB upsert file by hash %q: %w", f.Hash, err)
+			return int64(id), fmt.Errorf("tiedot DB upsert file by hash %q: %w", f.Hash, err)
 		}
-		return id, nil
+		return int64(id), nil
 	case 1: // Update existing
-		err := db.files.UpdateBytesFunc(ids[0], func(before []byte) (after []byte, err error) {
+		err := db.files.UpdateBytesFunc(int(ids[0]), func(before []byte) (after []byte, err error) {
 			// unmarshal
 			var doc fileDoc
 			err = json.Unmarshal(before, &doc)
@@ -109,7 +114,8 @@ func (db *tdb) FileUpsert(f *db.File) (int64, error) {
 			}
 			paths = append(paths, f.Found[k][0])
 			sort.Strings(paths)
-			doc.Found[k] = paths
+			found[k] = paths
+			doc.Found = found
 			// marshal
 			after, err = json.Marshal(doc)
 			if err != nil {
@@ -127,7 +133,7 @@ func (db *tdb) FileUpsert(f *db.File) (int64, error) {
 }
 
 func (db *tdb) query(col *tiedot.Col, q interface{}) ([]int64, error) {
-	rawIDs := new(map[int]struct{})
+	rawIDs := make(map[int]struct{})
 	err := tiedot.EvalQuery(q, col, &rawIDs)
 	if err != nil {
 		return nil, err
@@ -137,21 +143,21 @@ func (db *tdb) query(col *tiedot.Col, q interface{}) ([]int64, error) {
 	}
 	ids := make([]int64, 0, len(rawIDs))
 	for id := range rawIDs {
-		ids = append(ids, id)
+		ids = append(ids, int64(id))
 	}
 	return ids, nil
 }
 func (db *tdb) FileEach(fn func(int64, *File) error) error {
 	var final error
-	dbFiles.ForEachDoc(func(id int, doc []byte) (moveOn bool) {
+	db.files.ForEachDoc(func(id int, doc []byte) (moveOn bool) {
 		var f fileDoc
 		err := json.Unmarshal(doc, &f)
 		if err != nil {
-			final = fmt.Errorf("failed to decode file: %s RAW: %s", err, string(doc))
+			final = fmt.Errorf("tiedot DB failed to decode file: %s RAW: %s", err, string(doc))
 			return false
 		}
 		thumb, _ := base64.StdEncoding.DecodeString(f.Thumbnail)
-		final = fn(id, &File{
+		final = fn(int64(id), &File{
 			Hash:      f.Hash,
 			Date:      f.Date,
 			Thumbnail: thumb,
@@ -169,7 +175,7 @@ func migratedFound(old interface{}) map[string][]string {
 		for k, v := range fnd {
 			var paths []string
 			for p := range v {
-				paths = append(p)
+				paths = append(paths, p)
 			}
 			sort.Strings(paths)
 			m[k] = paths
@@ -180,4 +186,23 @@ func migratedFound(old interface{}) map[string][]string {
 		return map[string][]string{}
 	}
 	return old.(map[string][]string)
+}
+
+func (db *tdb) File(id int64) (*File, error) {
+	doc, err := db.files.Read(int(id))
+	if err != nil {
+		return nil, fmt.Errorf("tiedot DB read file by id %v: %w", id, err)
+	}
+	if doc == nil {
+		return nil, nil
+	}
+	thumb, _ := base64.StdEncoding.DecodeString(doc["thumbnail"].(string))
+	var date time.Time
+	_ = json.Unmarshal([]byte(fmt.Sprintf("%q", doc["date"])), &date)
+	return &File{
+		Hash:      doc["hash"].(string),
+		Date:      date,
+		Thumbnail: thumb,
+		Found:     migratedFound(doc["found"]),
+	}, nil
 }

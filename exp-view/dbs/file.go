@@ -1,4 +1,8 @@
-package db
+package dbs
+
+import (
+	"time"
+)
 
 type File struct {
 	Hash      string    `json:"hash"`

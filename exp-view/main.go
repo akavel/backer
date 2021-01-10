@@ -17,6 +17,7 @@ import (
 	tiedot "github.com/HouzuoGuo/tiedot/db"
 	"github.com/icza/gowut/gwu"
 
+	"github.com/akavel/backer/exp-view/db"
 	"github.com/akavel/backer/exp-view/query"
 )
 
@@ -62,26 +63,11 @@ func main() {
 	loadedPane := gwu.NewLabel(renderLoaded())
 	win.Add(loadedPane)
 
-	db, err := tiedot.OpenDB(dbPath)
+	db, err := db.NewTiedot(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
-
-	dbFiles, err := tiedot.OpenCol(db, "Files")
-	if err != nil {
-		log.Fatal(err)
-	}
-	// TODO[LATER]: detect errors other than "already exists"
-	dbFiles.Index([]string{"date"})
-	dbFiles.Index([]string{"hash"})
-
-	// TODO: load data from DB
-
-	// TODO: scan new data into DB
-	//  - for now, date from JPEG always [if possible]
-	//  - for now, only JPEGs
-	//  - for now, calc sha256 hash & store path, incl. "disk ID"
 
 	// Initialize & autodetect backends
 	backends := map[string]Backend{}
@@ -138,102 +124,30 @@ func main() {
 			infof("processing: %q %s", k, v)
 			// debugln("processing:", f.Hash(), f.Date(), k, v)
 			infof("processing fetch: %s %v %q %s", f.Hash(), f.Date(), k, v)
-			// Does such entry already exist?
-			ids := map[int]struct{}{}
-			err := tiedot.EvalQuery(
-				query.Eq(f.Hash(), query.Path{"hash"}),
-				dbFiles,
-				&ids)
+			id, err := db.FileUpsert(&db.File{
+				Hash:      f.Hash(),
+				Date:      f.Date(),
+				Thumbnail: f.Thumbnail(),
+				Found: map[string][]string{
+					k: []string{v},
+				},
+			})
 			if err != nil {
-				log.Fatal("querying DB for hash:", err)
+				problemf("processing file %q / %s: %w", k, v, err)
+				continue
 			}
-			if len(ids) == 0 {
-				id, err := dbFiles.Insert(map[string]interface{}{
-					"hash":      f.Hash(),
-					"date":      f.Date(),
-					"thumbnail": base64.StdEncoding.EncodeToString(f.Thumbnail()),
-					"found": map[string]map[string]struct{}{
-						k: map[string]struct{}{
-							v: struct{}{},
-						},
-					},
-				})
-				if err != nil {
-					log.Fatal("inserting in DB:", err)
-				}
-				debugln("inserted:", id)
-				itemsForUI <- itemForUI{
-					Date: f.Date(),
-					DBID: id,
-				}
-			} else {
-				// FIXME: update DB
-				for id := range ids {
-					debugln("exists:", id)
-					infof("update start %v", id)
-					err := dbFiles.UpdateBytesFunc(id, func(before []byte) (after []byte, err error) {
-						infof("in update %v", id)
-						// unmarshal
-						var doc struct {
-							Hash      string                         `json:"hash"`
-							Date      time.Time                      `json:"date"`
-							Thumbnail string                         `json:"thumbnail"`
-							Found     map[string]map[string]struct{} `json:"found"`
-						}
-						err = json.Unmarshal(before, &doc)
-						if err != nil {
-							return before, err
-						}
-						// validate .hash
-						if doc.Hash != f.Hash() {
-							return before, fmt.Errorf("hash mismatch, db=%q, update=%q", doc.Hash, f.Hash())
-						}
-						// update .found with new path
-						if doc.Found == nil {
-							doc.Found = map[string]map[string]struct{}{}
-						}
-						if doc.Found[k] == nil {
-							doc.Found[k] = map[string]struct{}{}
-						}
-						doc.Found[k][v] = struct{}{}
-						// [TEMPORARY] update .thumbnail, old may be wrongly rotated
-						doc.Thumbnail = base64.StdEncoding.EncodeToString(f.Thumbnail())
-						// [DEBUG] .found
-						tmp, _ := json.Marshal(doc.Found)
-						debugf("updating %q: %s", doc.Hash, string(tmp))
-						// marshal
-						after, err = json.Marshal(doc)
-						if err != nil {
-							return before, err
-						}
-						return after, nil
-					})
-					infof("update end %v", id)
-					if err != nil {
-						problemf("updating %v in DB: %w", id, err)
-					}
-					break
-				}
-			}
+			infof("upserted processed %q %s -> %v", k, v, id)
 		}
 	}()
 
 	// Fetch data into UI from DB
 	go func() {
-		dbFiles.ForEachDoc(func(id int, doc []byte) (moveOn bool) {
-			var f struct {
-				Date time.Time `json:"date"`
-			}
-			err := json.Unmarshal(doc, &f)
-			if err != nil {
-				panic(fmt.Errorf("failed to decode file: %s\nRAW: %s", err, string(doc)))
-			}
-			debugln("decoded:", f.Date, id)
+		db.FileEach(func(id int, f *db.File) error {
 			itemsForUI <- itemForUI{
 				DBID: id,
 				Date: f.Date,
 			}
-			return true
+			return nil
 		})
 		infof("DONE scanning DB")
 	}()

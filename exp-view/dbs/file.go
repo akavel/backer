@@ -13,8 +13,8 @@ type File struct {
 }
 
 type fileDoc struct {
-	Hash      string      `json:"hash"`
-	Date      time.Time   `json:"date"`
-	Thumbnail string      `json:"thumbnail"`
-	Found     interface{} `json:"found"`
+	Hash      string    `json:"hash"`
+	Date      time.Time `json:"date"`
+	Thumbnail string    `json:"thumbnail"`
+	Found     loose     `json:"found"`
 }

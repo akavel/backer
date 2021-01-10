@@ -28,7 +28,7 @@ type tdb struct {
 	files *tiedot.Col
 }
 
-type untyped = map[string]interface{}
+type loose = map[string]interface{}
 
 func NewTiedot(path string) (DB, error) {
 	t, err := tiedot.OpenDB(path)
@@ -78,7 +78,7 @@ func (db *tdb) FileUpsert(f *File) (int64, error) {
 	}
 	switch len(ids) {
 	case 0: // Insert new
-		id, err := db.files.Insert(untyped{
+		id, err := db.files.Insert(loose{
 			"hash":      f.Hash,
 			"date":      f.Date,
 			"thumbnail": base64.StdEncoding.EncodeToString(f.Thumbnail),
@@ -114,8 +114,7 @@ func (db *tdb) FileUpsert(f *File) (int64, error) {
 			}
 			paths = append(paths, f.Found[k][0])
 			sort.Strings(paths)
-			found[k] = paths
-			doc.Found = found
+			doc.Found[k] = paths
 			// marshal
 			after, err = json.Marshal(doc)
 			if err != nil {
@@ -169,23 +168,24 @@ func (db *tdb) FileEach(fn func(int64, *File) error) error {
 }
 
 // [TEMPORARY] backwards compat.
-func migratedFound(old interface{}) map[string][]string {
-	if fnd, ok := old.(map[string]map[string]struct{}); ok {
-		m := map[string][]string{}
-		for k, v := range fnd {
-			var paths []string
-			for p := range v {
-				paths = append(paths, p)
+func migratedFound(old loose) map[string][]string {
+	m := map[string][]string{}
+	for k, v := range old {
+		var paths []string
+		switch v := v.(type) {
+		case map[string]interface{}:
+			for path := range v {
+				paths = append(paths, path)
 			}
 			sort.Strings(paths)
-			m[k] = paths
+		case []string:
+			paths = v
+		default:
+			panic(fmt.Errorf("unexpected type in .found: %T=%[1]v", v))
 		}
-		return m
+		m[k] = paths
 	}
-	if old == nil {
-		return map[string][]string{}
-	}
-	return old.(map[string][]string)
+	return m
 }
 
 func (db *tdb) File(id int64) (*File, error) {
@@ -199,10 +199,11 @@ func (db *tdb) File(id int64) (*File, error) {
 	thumb, _ := base64.StdEncoding.DecodeString(doc["thumbnail"].(string))
 	var date time.Time
 	_ = json.Unmarshal([]byte(fmt.Sprintf("%q", doc["date"])), &date)
+	found, _ := doc["found"].(map[string]interface{})
 	return &File{
 		Hash:      doc["hash"].(string),
 		Date:      date,
 		Thumbnail: thumb,
-		Found:     migratedFound(doc["found"]),
+		Found:     migratedFound(found),
 	}, nil
 }

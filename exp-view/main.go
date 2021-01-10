@@ -59,11 +59,13 @@ func main() {
 	loadedPane := gwu.NewLabel(renderLoaded())
 	win.Add(loadedPane)
 
+	infof("db starting...")
 	db, err := dbs.NewTiedot(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	infof("db initialized")
 
 	// Initialize & autodetect backends
 	backends := map[string]Backend{}
@@ -133,6 +135,10 @@ func main() {
 				continue
 			}
 			infof("upserted processed %q %s -> %v", k, v, id)
+			itemsForUI <- itemForUI{
+				DBID: id,
+				Date: f.Date(),
+			}
 		}
 	}()
 

@@ -35,6 +35,12 @@ func NewTiedot(path string) (DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening tiedot DB: %w", err)
 	}
+	// Note: running .Scrub after .OpenCol fails with:
+	// `remove database/Files\date\0: The process cannot access the file because it is being used by another process.`
+	err = t.Scrub("Files")
+	if err != nil && !strings.HasSuffix(err.Error(), " does not exist") {
+		return nil, fmt.Errorf("initializing tiedot DB %q: %w", path, err)
+	}
 	files, err := tiedot.OpenCol(t, "Files")
 	if err != nil {
 		return nil, fmt.Errorf("initializing tiedot DB %q: %w", path, err)
@@ -178,8 +184,10 @@ func migratedFound(old loose) map[string][]string {
 				paths = append(paths, path)
 			}
 			sort.Strings(paths)
-		case []string:
-			paths = v
+		case []interface{}: // assuming []string
+			for _, s := range v {
+				paths = append(paths, s.(string))
+			}
 		default:
 			panic(fmt.Errorf("unexpected type in .found: %T=%[1]v", v))
 		}

@@ -16,7 +16,8 @@ func OpenQL(path string) (DB, error) {
 	q, err := ql.OpenFile(path, &ql.Options{
 		CanCreate:      true,
 		RemoveEmptyWAL: true,
-		FileFormat:     2, // newest, apparently?
+		// Using format 1, due to having an issue with 2: https://gitlab.com/cznic/ql/-/issues/227
+		FileFormat: 1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening ql DB: %w", err)

@@ -64,8 +64,8 @@ func (db *qldb) FileUpsert(f *File) (int64, error) {
 	rs, failed, err := db.q.Run(tx, `
 BEGIN TRANSACTION;
 	SELECT id() as ID, Hash
-		FROM file AS f
-		WHERE f.Hash = $1;
+		FROM file
+		WHERE Hash = $1;
 	`, f.Hash)
 	if err != nil {
 		return 0, fmt.Errorf("ql DB upsert file by hash %q stmt %d: %w", f.Hash, failed, err)
@@ -85,8 +85,8 @@ BEGIN TRANSACTION;
 				$1, $2, $3
 			);
 			SELECT id() as ID, Hash
-				FROM file AS f
-				WHERE f.Hash = $1;`,
+				FROM file
+				WHERE Hash = $1;`,
 			f.Hash, f.Date, f.Thumbnail)
 		if err != nil {
 			return 0, fmt.Errorf("ql DB upsert new file by hash %q stmt %d: %w", f.Hash, failed, err)
@@ -151,7 +151,7 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 			rs, failed, err := db.q.Run(tx, `
 				SELECT id() AS ID
 					FROM location
-					WHERE BackendID = $1, Location = $2;`,
+					WHERE BackendID = $1 AND Location = $2;`,
 				backendID, l)
 			if err != nil {
 				return fmt.Errorf("checking location %q / %q stmt %v: %w", backend, l, failed, err)

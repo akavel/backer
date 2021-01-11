@@ -2,6 +2,8 @@ package dbs
 
 import (
 	"fmt"
+	"sort"
+	"time"
 
 	"modernc.org/ql"
 )
@@ -98,9 +100,7 @@ BEGIN TRANSACTION;
 		fileID = row[0].(int64)
 	} else { // Update existing
 		// FIXME: detect >1 rows returned and log error
-		panic("NIY")
-		// _,failed,err = db.q.Run(tx, `
-		// 	INSERT INTO
+		fileID = row[0].(int64)
 	}
 
 	err = db.addLocations(tx, fileID, f.Found)
@@ -181,5 +181,39 @@ func (db *qldb) FileEach(fn func(int64, *File) error) error {
 }
 
 func (db *qldb) File(id int64) (*File, error) {
-	panic("NIY")
+	rs, failed, err := db.q.Run(nil, `
+		SELECT Hash, Date, Thumbnail FROM file WHERE id() = $1;
+		SELECT b.Tag, l.Location
+			FROM (SELECT id() as ID, Tag FROM backend) as b, location as l
+			WHERE b.ID = l.BackendID AND l.FileID = $1;
+		`, id)
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file %q stmt %v: %w", id, failed, err)
+	}
+
+	// Main fields of a File
+	row, err := rs[0].FirstRow()
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file %q: %w", id, err)
+	}
+	f := &File{
+		Hash:      row[0].(string),
+		Date:      row[1].(time.Time),
+		Thumbnail: row[2].([]byte),
+		Found:     map[string][]string{},
+	}
+
+	// .Found
+	err = rs[1].Do(false, func(row []interface{}) (more bool, err error) {
+		k, v := row[0].(string), row[1].(string)
+		f.Found[k] = append(f.Found[k], v)
+		return true, nil
+	})
+	if err != nil {
+		return f, fmt.Errorf("ql DB loading file %q locations: %w", id, err)
+	}
+	for k := range f.Found {
+		sort.Strings(f.Found[k])
+	}
+	return f, nil
 }

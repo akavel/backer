@@ -28,7 +28,7 @@ func (d *WinDisk) Open() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("opening WinDisk marker %q: %w", d.Marker, err)
 	}
-	fmt.Printf("MARKER %q\n", d.id)
+	debugf("MARKER %q\n", d.id)
 	return d.id, nil
 }
 

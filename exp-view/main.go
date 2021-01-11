@@ -60,7 +60,7 @@ func main() {
 	win.Add(loadedPane)
 
 	infof("db starting...")
-	db, err := dbs.NewTiedot(dbPath)
+	db, err := dbs.OpenQL(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}

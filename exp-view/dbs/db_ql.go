@@ -71,7 +71,7 @@ BEGIN TRANSACTION;
 	}
 	defer db.rollback(tx)
 
-	row, err := rs.FirstRow()
+	row, err := rs[0].FirstRow()
 	if err != nil {
 		return 0, fmt.Errorf("ql DB upsert file by hash %q: %w", f.Hash, err)
 	}
@@ -83,14 +83,14 @@ BEGIN TRANSACTION;
 			) VALUES (
 				$1, $2, $3
 			);
-			SELECT id() as ID
+			SELECT id() as ID, Hash
 				FROM file AS f
 				WHERE f.Hash = $1;`,
 			f.Hash, f.Date, f.Thumbnail)
 		if err != nil {
 			return 0, fmt.Errorf("ql DB upsert new file by hash %q stmt %d: %w", f.Hash, failed, err)
 		}
-		row, err := rs.FirstRow()
+		row, err := rs[0].FirstRow()
 		if err != nil {
 			return 0, fmt.Errorf("ql DB upsert new file by hash %q: %w", f.Hash, err)
 		}
@@ -126,7 +126,7 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 		if err != nil {
 			return fmt.Errorf("checking backend %q stmt %v: %w", backend, failed, err)
 		}
-		row, err := rs.FirstRow()
+		row, err := rs[0].FirstRow()
 		if err != nil {
 			return fmt.Errorf("checking backend %q: %w", backend, err)
 		}
@@ -138,7 +138,7 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 			if err != nil {
 				return fmt.Errorf("inserting backend %q stmt %v: %w", backend, failed, err)
 			}
-			row, err = rs.FirstRow()
+			row, err = rs[0].FirstRow()
 			if err != nil {
 				return fmt.Errorf("checking new backend %q: %w", backend, err)
 			}
@@ -155,7 +155,7 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 			if err != nil {
 				return fmt.Errorf("checking location %q / %q stmt %v: %w", backend, l, failed, err)
 			}
-			row, err = rs.FirstRow()
+			row, err = rs[0].FirstRow()
 			if err != nil {
 				return fmt.Errorf("checking location %q / %q: %w", backend, l, err)
 			}
@@ -175,7 +175,8 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 }
 
 func (db *qldb) FileEach(fn func(int64, *File) error) error {
-	panic("NIY")
+	return nil // FIXME
+	// panic("NIY")
 }
 
 func (db *qldb) File(id int64) (*File, error) {

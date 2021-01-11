@@ -176,8 +176,22 @@ func (db *qldb) addLocations(tx *ql.TCtx, fileID int64, found map[string][]strin
 }
 
 func (db *qldb) FileEach(fn func(int64, *File) error) error {
-	return nil // FIXME
-	// panic("NIY")
+	rs, failed, err := db.q.Run(nil, `SELECT id() FROM file;`)
+	if err != nil {
+		return fmt.Errorf("ql DB iterating files stmt %v: %w", failed, err)
+	}
+	err = rs[0].Do(false, func(row []interface{}) (more bool, err error) {
+		id := row[0].(int64)
+		f, err := db.File(id)
+		if err != nil {
+			return false, err
+		}
+		return true, fn(id, f)
+	})
+	if err != nil {
+		return fmt.Errorf("ql DB iterating files: %w", err)
+	}
+	return nil
 }
 
 func (db *qldb) File(id int64) (*File, error) {

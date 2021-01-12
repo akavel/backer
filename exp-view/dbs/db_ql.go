@@ -180,13 +180,13 @@ func (db *qldb) FileEach(fn func(int64, *File) error) error {
 	if err != nil {
 		return fmt.Errorf("ql DB iterating files stmt %v: %w", failed, err)
 	}
-	err = rs[0].Do(false, func(row []interface{}) (more bool, err error) {
+	err = db.looseDo(rs[0], func(row []interface{}) error {
 		id := row[0].(int64)
 		f, err := db.File(id)
 		if err != nil {
-			return false, err
+			return err
 		}
-		return true, fn(id, f)
+		return fn(id, f)
 	})
 	if err != nil {
 		return fmt.Errorf("ql DB iterating files: %w", err)
@@ -261,4 +261,26 @@ func (db *qldb) FileByLocation(backend, location string) (*int64, error) {
 	}
 	id := row[0].(int64)
 	return &id, nil
+}
+
+// looseDo runs fn on "all" records from rs, but it does to
+// non-transactionally, which may lead to data inconsistencies (missing or
+// duplicated entries).
+func (db *qldb) looseDo(rs ql.Recordset, fn func(row []interface{}) error) error {
+	const limit = 100
+	for offset := 0; ; offset += limit {
+		rows, err := rs.Rows(limit, offset)
+		if err != nil {
+			return fmt.Errorf("fetching %d rows at offset %d: %w", limit, offset, err)
+		}
+		if rows == nil {
+			return nil
+		}
+		for _, row := range rows {
+			err = fn(row)
+			if err != nil {
+				return err
+			}
+		}
+	}
 }

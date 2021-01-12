@@ -242,6 +242,9 @@ func (db *qldb) FileByLocation(backend, location string) (*int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ql DB loading file by location %q / %q: %w", backend, location, err)
 	}
+	if row == nil {
+		return nil, nil
+	}
 	backendID := row[0].(int64)
 
 	rs, failed, err = db.q.Run(nil, `

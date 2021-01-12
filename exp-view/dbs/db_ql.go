@@ -231,3 +231,34 @@ func (db *qldb) File(id int64) (*File, error) {
 	}
 	return f, nil
 }
+
+func (db *qldb) FileByLocation(backend, location string) (*int64, error) {
+	rs, failed, err := db.q.Run(nil, `
+		SELECT id() FROM backend WHERE Tag = $1`, backend)
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file by location %q / %q stmt %v: %w", backend, location, failed, err)
+	}
+	row, err := rs[0].FirstRow()
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file by location %q / %q: %w", backend, location, err)
+	}
+	backendID := row[0].(int64)
+
+	rs, failed, err = db.q.Run(nil, `
+		SELECT FileID
+			FROM location
+			WHERE BackendID = $1 AND Location = $2;
+		`, backendID, location)
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file by location %q / %q stmt %v: %w", backend, location, failed, err)
+	}
+	row, err = rs[0].FirstRow()
+	if err != nil {
+		return nil, fmt.Errorf("ql DB loading file by location %q / %q: %w", backend, location, err)
+	}
+	if row == nil {
+		return nil, nil
+	}
+	id := row[0].(int64)
+	return &id, nil
+}

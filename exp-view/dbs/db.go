@@ -12,6 +12,7 @@ type DB interface {
 	FileUpsert(f *File) (int64, error)
 	FileEach(func(int64, *File) error) error
 	File(id int64) (*File, error)
+	FileByLocation(backend, location string) (*int64, error)
 }
 
 type File struct {

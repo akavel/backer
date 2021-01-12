@@ -91,12 +91,20 @@ func main() {
 			// TODO: first, just load .jpg previews and show them + calc hash + save date in DB + save filename in DB
 			// TODO[LATER]: handling of errors on files?
 			debugf("scanning %s", id)
+			// First, process only new items (not yet in DB)
 			err := b.Walk(func(f File) {
 				k, v := f.Found()
 				debugf("found %q: %q", k, v)
+				id, _ := db.FileByLocation(k, v)
+				if id != nil {
+					debugf("skipping %q / %v", k, v)
+					return // is in DB - skip for now
+				}
 				files <- f
 				atomic.AddInt64(n, 1)
 			})
+			// TODO: Next, rescan random selection of items from DB
+			// FIXME: Finally, rescan all items from DB
 			// close(files)
 
 			if err != nil {
@@ -145,6 +153,7 @@ func main() {
 	// Fetch data into UI from DB
 	go func() {
 		db.FileEach(func(id int64, f *dbs.File) error {
+			debugf("file-each: %v %v", id, f.Hash)
 			itemsForUI <- itemForUI{
 				DBID: id,
 				Date: f.Date,

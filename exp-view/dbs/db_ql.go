@@ -188,6 +188,14 @@ func (db *qldb) FileEach(fn func(int64, *File) error) error {
 		}
 		return fn(id, f)
 	})
+	// err = rs[0].Do(false, func(row []interface{}) (more bool, err error) {
+	// 	id := row[0].(int64)
+	// 	f, err := db.File(id)
+	// 	if err != nil {
+	// 		return false, err
+	// 	}
+	// 	return true, fn(id, f)
+	// })
 	if err != nil {
 		return fmt.Errorf("ql DB iterating files: %w", err)
 	}

@@ -10,5 +10,5 @@ require (
 	golang.org/x/image v0.0.0-20201208152932-35266b937fa6
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	modernc.org/ql v1.3.1
+	modernc.org/ql v0.0.0-20210112103527-874e49e7aaad
 )

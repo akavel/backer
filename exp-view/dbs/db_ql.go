@@ -2,6 +2,8 @@ package dbs
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"sort"
 	"time"
 
@@ -15,14 +17,20 @@ type qldb struct {
 var _ DB = (*qldb)(nil)
 
 func OpenQL(path string) (DB, error) {
-	q, err := ql.OpenFile(path, &ql.Options{
+	opts := &ql.Options{
 		CanCreate:      true,
 		RemoveEmptyWAL: true,
-		// Using format 1, due to having an issue with 2: https://gitlab.com/cznic/ql/-/issues/227
-		FileFormat: 1,
-	})
+		FileFormat:     2,
+		// // Using format 1, due to having an issue with 2: https://gitlab.com/cznic/ql/-/issues/227
+		// FileFormat: 1,
+	}
+	q, err := ql.OpenFile(path, opts)
 	if err != nil {
-		return nil, fmt.Errorf("opening ql DB: %w", err)
+		log.Printf("attempting WAL deletion...", os.Remove(ql.WalName(path)))
+		q, err = ql.OpenFile(path, opts)
+		if err != nil {
+			return nil, fmt.Errorf("opening ql DB: %w", err)
+		}
 	}
 	_, failed, err := q.Run(ql.NewRWCtx(), qlSchema)
 	if err != nil {
